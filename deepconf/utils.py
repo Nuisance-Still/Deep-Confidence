@@ -77,17 +77,61 @@ def weighted_majority_vote(answers: List[str], weights: List[float]) -> Optional
     """Perform weighted majority voting"""
     if not answers:
         return None
-    
+
     answer_weights = {}
     for answer, weight in zip(answers, weights):
         if answer is not None:
             answer_str = str(answer)
             answer_weights[answer_str] = answer_weights.get(answer_str, 0.0) + float(weight)
-    
+
     if not answer_weights:
         return None
-    
+
     return max(answer_weights.keys(), key=lambda x: answer_weights[x])
+
+
+def get_electoral_votes():
+    """Returns a dictionary of US states and their electoral votes."""
+    return {
+        "CA": 55, "TX": 38, "FL": 29, "NY": 29, "IL": 20, "PA": 20,
+        "OH": 18, "GA": 16, "MI": 16, "NC": 15, "NJ": 14, "VA": 13,
+        "WA": 12, "AZ": 11, "IN": 11, "MA": 11, "TN": 11, "MD": 10,
+        "MN": 10, "MO": 10, "WI": 10, "AL": 9, "CO": 9, "SC": 9,
+        "KY": 8, "LA": 8, "CT": 7, "OK": 7, "OR": 7, "AR": 6,
+        "IA": 6, "KS": 6, "MS": 6, "NV": 6, "UT": 6, "NE": 5,
+        "NM": 5, "WV": 5, "HI": 4, "ID": 4, "ME": 4, "NH": 4,
+        "RI": 4, "AK": 3, "DE": 3, "DC": 3, "MT": 3, "ND": 3,
+        "SD": 3, "VT": 3, "WY": 3
+    }
+
+
+def electoral_college_vote(answers: List[str], weights: List[float]) -> Optional[str]:
+    """Simulates the US electoral college system for voting."""
+    if not answers:
+        return None
+
+    electoral_votes = get_electoral_votes()
+    states = list(electoral_votes.keys())
+
+    # Assign each trace to a state
+    state_assignments = np.random.choice(states, size=len(answers), p=np.array(list(electoral_votes.values()))/sum(electoral_votes.values()))
+
+    state_winner = {}
+    for state in states:
+        state_answers = [answers[i] for i, s in enumerate(state_assignments) if s == state]
+        state_weights = [weights[i] for i, s in enumerate(state_assignments) if s == state]
+        if state_answers:
+            state_winner[state] = weighted_majority_vote(state_answers, state_weights)
+
+    electoral_results = Counter()
+    for state, winner in state_winner.items():
+        if winner is not None:
+            electoral_results[winner] += electoral_votes[state]
+
+    if not electoral_results:
+        return None
+
+    return electoral_results.most_common(1)[0][0]
 
 
 def calculate_mean_confidence(trace: Dict[str, Any]) -> float:
@@ -187,7 +231,7 @@ def compute_all_voting_results(traces: List[Dict[str, Any]]) -> Dict[str, Any]:
     if not valid_traces:
         return {method: None for method in [
             'majority', 'mean_confidence_weighted', 'tail_confidence_weighted',
-            'bottom_window_weighted', 'min_window_weighted', 
+            'bottom_window_weighted', 'min_window_weighted', 'electoral_college',
             'top10_tail_filtered', 'top10_bottom_window_filtered'
         ]}
     
@@ -246,7 +290,16 @@ def compute_all_voting_results(traces: List[Dict[str, Any]]) -> Dict[str, Any]:
             'confidence': np.mean(min_window_confidences)
         }
     
-    # 6. Top 10% tail confidence filtered + weighted vote
+    # 6. Electoral college vote
+    if any(c > 0 for c in mean_confidences):
+        electoral_answer = electoral_college_vote(answers, mean_confidences)
+        voting_results['electoral_college'] = {
+            'answer': electoral_answer,
+            'num_votes': len(answers),
+            'confidence': np.mean(mean_confidences)
+        }
+
+    # 7. Top 10% tail confidence filtered + weighted vote
     top_tail_traces = filter_top_confidence(valid_traces, 'tail', 0.1)
     if top_tail_traces:
         top_tail_answers = [trace['extracted_answer'] for trace in top_tail_traces]
